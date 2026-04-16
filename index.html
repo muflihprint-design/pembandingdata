@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DataComparator - Web App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .tab-active { border-bottom: 2px solid #2563eb; color: #2563eb; }
+        [v-cloak] { display: none; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen pb-12">
+
+    <!-- Loading Overlay -->
+    <div id="loading" class="fixed inset-0 bg-white z-50 flex flex-col items-center justify-center">
+        <div class="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
+        <p class="mt-4 text-slate-600 font-medium italic">Menghubungkan ke Google Sheets...</p>
+    </div>
+
+    <!-- Header -->
+    <header class="max-w-7xl mx-auto px-4 pt-8 md:pt-12 mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                <i data-lucide="file-diff" class="text-blue-600"></i> DataComparator
+            </h1>
+            <p class="text-slate-500 mt-1">Perbandingan real-time antara Dataset 1 dan Dataset 2</p>
+        </div>
+        <button onclick="fetchData()" class="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all active:scale-95">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i> Perbarui Data
+        </button>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4">
+        <!-- Stats -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8" id="stats-container">
+            <!-- Stats will be injected here -->
+        </div>
+
+        <!-- Content Card -->
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <!-- Tabs -->
+            <div class="flex border-b border-slate-200 overflow-x-auto bg-white sticky top-0 z-10">
+                <button onclick="switchTab('summary')" id="tab-summary" class="tab-btn px-6 py-4 text-sm font-bold whitespace-nowrap transition-colors border-b-2 tab-active">Ringkasan</button>
+                <button onclick="switchTab('changed')" id="tab-changed" class="tab-btn px-6 py-4 text-sm font-bold whitespace-nowrap transition-colors border-b-2 border-transparent text-slate-500">Berubah</button>
+                <button onclick="switchTab('added')" id="tab-added" class="tab-btn px-6 py-4 text-sm font-bold whitespace-nowrap transition-colors border-b-2 border-transparent text-slate-500">Baru</button>
+                <button onclick="switchTab('removed')" id="tab-removed" class="tab-btn px-6 py-4 text-sm font-bold whitespace-nowrap transition-colors border-b-2 border-transparent text-slate-500">Dihapus</button>
+                <button onclick="switchTab('raw')" id="tab-raw" class="tab-btn px-6 py-4 text-sm font-bold whitespace-nowrap transition-colors border-b-2 border-transparent text-slate-500">Semua Data</button>
+            </div>
+
+            <!-- Search Bar -->
+            <div class="p-4 border-b border-slate-100 bg-slate-50/50">
+                <div class="relative max-w-md">
+                    <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"></i>
+                    <input 
+                        type="text" 
+                        id="searchInput"
+                        onkeyup="handleSearch()"
+                        placeholder="Cari ID atau nilai..."
+                        class="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                    >
+                </div>
+            </div>
+
+            <!-- Table Area -->
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm border-collapse" id="dataTable">
+                    <thead class="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-widest font-bold">
+                        <tr id="tableHeader">
+                            <!-- Headers injected here -->
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100" id="tableBody">
+                        <!-- Content injected here -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Empty/Summary State -->
+            <div id="summaryContent" class="p-12 text-center">
+                <div class="bg-blue-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i data-lucide="filter" class="text-blue-600 w-8 h-8"></i>
+                </div>
+                <h3 class="text-lg font-bold text-slate-800 mb-2">Pilih Kategori Perbandingan</h3>
+                <p class="text-slate-500 max-w-md mx-auto">Gunakan tab di atas untuk melihat detail data yang berubah, baru ditambahkan, atau telah dihapus dari sistem.</p>
+            </div>
+        </div>
+    </main>
+
+    <footer class="max-w-7xl mx-auto mt-8 px-4 flex justify-between items-center text-[10px] text-slate-400 uppercase tracking-widest font-bold">
+        <p>Sumber: Google Sheets Live Feed</p>
+        <p>&copy; 2024 DataComparator Web</p>
+    </footer>
+
+    <script>
+        const DATA_1_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTF8Hs0rJCd7GAkc8SndKc1y1pvodkKof06_eg3FxeIpMe41lK-n2-UMqkWTHhTGH7g9J6gGWGgygtk/pub?gid=0&single=true&output=csv";
+        const DATA_2_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTF8Hs0rJCd7GAkc8SndKc1y1pvodkKof06_eg3FxeIpMe41lK-n2-UMqkWTHhTGH7g9J6gGWGgygtk/pub?gid=1804080145&single=true&output=csv";
+
+        let state = {
+            data1: [],
+            data2: [],
+            results: null,
+            activeTab: 'summary',
+            searchTerm: ''
+        };
+
+        async function fetchData() {
+            document.getElementById('loading').style.display = 'flex';
+            try {
+                const [csv1, csv2] = await Promise.all([
+                    fetch(DATA_1_URL).then(r => r.text()),
+                    fetch(DATA_2_URL).then(r => r.text())
+                ]);
+
+                state.data1 = parseCSV(csv1);
+                state.data2 = parseCSV(csv2);
+                
+                compareData();
+                renderStats();
+                switchTab(state.activeTab);
+            } catch (err) {
+                console.error(err);
+                alert("Gagal memuat data. Periksa koneksi internet Anda.");
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+                lucide.createIcons();
+            }
+        }
+
+        function parseCSV(csv) {
+            const lines = csv.split('\n');
+            const headers = lines[0].split(',').map(h => h.trim());
+            return lines.slice(1).filter(line => line.trim() !== "").map(line => {
+                const values = line.split(',');
+                const obj = {};
+                headers.forEach((header, index) => {
+                    obj[header] = values[index] ? values[index].trim() : "";
+                });
+                return obj;
+            });
+        }
+
+        function compareData() {
+            const d1 = state.data1;
+            const d2 = state.data2;
+            const key = Object.keys(d1[0] || {})[0];
+            
+            if (!key) return;
+
+            const map1 = new Map(d1.map(item => [item[key], item]));
+            const map2 = new Map(d2.map(item => [item[key], item]));
+            const allKeys = Array.from(new Set([...map1.keys(), ...map2.keys()]));
+            
+            const results = {
+                added: [],
+                removed: [],
+                changed: [],
+                identical: [],
+                allColumns: Array.from(new Set([...Object.keys(d1[0] || {}), ...Object.keys(d2[0] || {})]))
+            };
+
+            allKeys.forEach(id => {
+                const item1 = map1.get(id);
+                const item2 = map2.get(id);
+
+                if (!item1) {
+                    results.added.push(item2);
+                } else if (!item2) {
+                    results.removed.push(item1);
+                } else {
+                    const diffs = {};
+                    let isDifferent = false;
+                    results.allColumns.forEach(col => {
+                        if (item1[col] !== item2[col]) {
+                            diffs[col] = { old: item1[col], new: item2[col] };
+                            isDifferent = true;
+                        }
+                    });
+
+                    if (isDifferent) {
+                        results.changed.push({ id, current: item2, diffs });
+                    } else {
+                        results.identical.push(item1);
+                    }
+                }
+            });
+
+            state.results = results;
+        }
+
+        function renderStats() {
+            const container = document.getElementById('stats-container');
+            const stats = [
+                { label: 'Identik', value: state.results.identical.length, color: 'text-emerald-600', bg: 'bg-emerald-50', icon: 'check-circle' },
+                { label: 'Berubah', value: state.results.changed.length, color: 'text-amber-600', bg: 'bg-amber-50', icon: 'refresh-cw' },
+                { label: 'Baru', value: state.results.added.length, color: 'text-blue-600', bg: 'bg-blue-50', icon: 'plus-circle' },
+                { label: 'Dihapus', value: state.results.removed.length, color: 'text-rose-600', bg: 'bg-rose-50', icon: 'trash-2' }
+            ];
+
+            container.innerHTML = stats.map(s => `
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4">
+                    <div class="p-3 rounded-lg ${s.bg} ${s.color}">
+                        <i data-lucide="${s.icon}" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-400 font-bold uppercase tracking-wider">${s.label}</p>
+                        <p class="text-2xl font-black text-slate-800">${s.value}</p>
+                    </div>
+                </div>
+            `).join('');
+            lucide.createIcons();
+        }
+
+        function switchTab(tabId) {
+            state.activeTab = tabId;
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('tab-active', 'text-blue-600'));
+            document.getElementById(`tab-${tabId}`).classList.add('tab-active', 'text-blue-600');
+            
+            const summary = document.getElementById('summaryContent');
+            const table = document.getElementById('dataTable');
+            
+            if (tabId === 'summary') {
+                summary.classList.remove('hidden');
+                table.classList.add('hidden');
+            } else {
+                summary.classList.add('hidden');
+                table.classList.remove('hidden');
+                renderTable();
+            }
+        }
+
+        function handleSearch() {
+            state.searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            if (state.activeTab !== 'summary') renderTable();
+        }
+
+        function renderTable() {
+            const headerRow = document.getElementById('tableHeader');
+            const body = document.getElementById('tableBody');
+            const cols = state.results.allColumns;
+
+            // Render Headers
+            headerRow.innerHTML = '<th class="px-6 py-4 border-b border-slate-200">Status</th>' + 
+                cols.map(c => `<th class="px-6 py-4 border-b border-slate-200">${c}</th>`).join('');
+
+            let rows = [];
+            const term = state.searchTerm;
+
+            if (state.activeTab === 'changed') {
+                rows = state.results.changed
+                    .filter(r => JSON.stringify(r).toLowerCase().includes(term))
+                    .map(r => `
+                        <tr class="hover:bg-slate-50 transition">
+                            <td class="px-6 py-4"><span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[10px] font-black uppercase">Berubah</span></td>
+                            ${cols.map(c => `
+                                <td class="px-6 py-4">
+                                    ${r.diffs[c] ? `
+                                        <div class="flex flex-col">
+                                            <span class="text-rose-400 line-through text-[11px]">${r.diffs[c].old}</span>
+                                            <span class="text-emerald-600 font-bold">${r.diffs[c].new}</span>
+                                        </div>
+                                    ` : `<span class="text-slate-600">${r.current[c]}</span>`}
+                                </td>
+                            `).join('')}
+                        </tr>
+                    `);
+            } else if (state.activeTab === 'added') {
+                rows = state.results.added
+                    .filter(r => JSON.stringify(r).toLowerCase().includes(term))
+                    .map(r => `
+                        <tr class="bg-blue-50/30 hover:bg-blue-50/50 transition">
+                            <td class="px-6 py-4"><span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-black uppercase">Baru</span></td>
+                            ${cols.map(c => `<td class="px-6 py-4 font-semibold text-blue-900">${r[c]}</td>`).join('')}
+                        </tr>
+                    `);
+            } else if (state.activeTab === 'removed') {
+                rows = state.results.removed
+                    .filter(r => JSON.stringify(r).toLowerCase().includes(term))
+                    .map(r => `
+                        <tr class="bg-rose-50/30 hover:bg-rose-50/50 transition">
+                            <td class="px-6 py-4"><span class="bg-rose-100 text-rose-700 px-2 py-0.5 rounded text-[10px] font-black uppercase">Dihapus</span></td>
+                            ${cols.map(c => `<td class="px-6 py-4 text-slate-400 italic line-through">${r[c]}</td>`).join('')}
+                        </tr>
+                    `);
+            } else if (state.activeTab === 'raw') {
+                rows = state.data2
+                    .filter(r => JSON.stringify(r).toLowerCase().includes(term))
+                    .map((r, i) => `
+                        <tr class="hover:bg-slate-50 transition">
+                            <td class="px-6 py-4 text-slate-300 font-mono text-xs">#${i+1}</td>
+                            ${cols.map(c => `<td class="px-6 py-4">${r[c]}</td>`).join('')}
+                        </tr>
+                    `);
+            }
+
+            body.innerHTML = rows.length > 0 ? rows.join('') : `<tr><td colspan="${cols.length + 1}" class="p-12 text-center text-slate-400 italic">Data tidak ditemukan</td></tr>`;
+        }
+
+        // Initialize
+        window.onload = fetchData;
+    </script>
+</body>
+</html>
