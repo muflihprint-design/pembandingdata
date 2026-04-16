@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DataComparator - Web App</title>
+    <title>DataComparator - Fix CSV Parsing</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
@@ -11,6 +11,11 @@
         body { font-family: 'Inter', sans-serif; }
         .tab-active { border-bottom: 2px solid #2563eb; color: #2563eb; }
         [v-cloak] { display: none; }
+        .diff-cell { background-color: #fffbeb; }
+        .sticky-col { position: sticky; left: 0; background-color: white; z-index: 10; border-right: 2px solid #e2e8f0; }
+        th.sticky-col { background-color: #f8fafc; z-index: 20; }
+        .font-compact { font-size: 0.75rem; line-height: 1rem; }
+        .font-id { font-family: 'JetBrains Mono', 'Menlo', monospace; font-size: 0.7rem; letter-spacing: -0.025em; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen pb-12">
@@ -18,16 +23,16 @@
     <!-- Loading Overlay -->
     <div id="loading" class="fixed inset-0 bg-white z-50 flex flex-col items-center justify-center">
         <div class="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
-        <p class="mt-4 text-slate-600 font-medium italic">Menghubungkan ke Google Sheets...</p>
+        <p class="mt-4 text-slate-600 font-medium italic text-sm">Memproses Data CSV...</p>
     </div>
 
     <!-- Header -->
     <header class="max-w-7xl mx-auto px-4 pt-8 md:pt-12 mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
             <h1 class="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-                <i data-lucide="file-diff" class="text-blue-600"></i> DataComparator
+                <i data-lucide="shield-check" class="text-blue-600"></i> DataComparator
             </h1>
-            <p class="text-slate-500 mt-1">Perbandingan real-time antara Dataset 1 dan Dataset 2</p>
+            <p class="text-slate-500 mt-1 uppercase text-[10px] font-bold tracking-widest">Audit Lanjutan & Penanganan Koma</p>
         </div>
         <button onclick="fetchData()" class="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all active:scale-95">
             <i data-lucide="refresh-cw" class="w-4 h-4"></i> Perbarui Data
@@ -35,65 +40,51 @@
     </header>
 
     <main class="max-w-7xl mx-auto px-4">
-        <!-- Stats -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8" id="stats-container">
-            <!-- Stats will be injected here -->
-        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8" id="stats-container"></div>
 
-        <!-- Content Card -->
         <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             <!-- Tabs -->
-            <div class="flex border-b border-slate-200 overflow-x-auto bg-white sticky top-0 z-10">
+            <div class="flex border-b border-slate-200 overflow-x-auto bg-white sticky top-0 z-30">
                 <button onclick="switchTab('summary')" id="tab-summary" class="tab-btn px-6 py-4 text-sm font-bold whitespace-nowrap transition-colors border-b-2 tab-active">Ringkasan</button>
-                <button onclick="switchTab('changed')" id="tab-changed" class="tab-btn px-6 py-4 text-sm font-bold whitespace-nowrap transition-colors border-b-2 border-transparent text-slate-500">Berubah</button>
-                <button onclick="switchTab('added')" id="tab-added" class="tab-btn px-6 py-4 text-sm font-bold whitespace-nowrap transition-colors border-b-2 border-transparent text-slate-500">Baru</button>
-                <button onclick="switchTab('removed')" id="tab-removed" class="tab-btn px-6 py-4 text-sm font-bold whitespace-nowrap transition-colors border-b-2 border-transparent text-slate-500">Dihapus</button>
-                <button onclick="switchTab('raw')" id="tab-raw" class="tab-btn px-6 py-4 text-sm font-bold whitespace-nowrap transition-colors border-b-2 border-transparent text-slate-500">Semua Data</button>
+                <button onclick="switchTab('changed')" id="tab-changed" class="tab-btn px-6 py-4 text-sm font-bold whitespace-nowrap transition-colors border-b-2 border-transparent text-slate-500 flex items-center gap-2">
+                    Berubah <span id="badge-changed" class="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-[10px]">0</span>
+                </button>
+                <button onclick="switchTab('added')" id="tab-added" class="tab-btn px-6 py-4 text-sm font-bold whitespace-nowrap transition-colors border-b-2 border-transparent text-slate-500 flex items-center gap-2">
+                    Baru <span id="badge-added" class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[10px]">0</span>
+                </button>
+                <button onclick="switchTab('removed')" id="tab-removed" class="tab-btn px-6 py-4 text-sm font-bold whitespace-nowrap transition-colors border-b-2 border-transparent text-slate-500 flex items-center gap-2">
+                    Dihapus <span id="badge-removed" class="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded text-[10px]">0</span>
+                </button>
+                <button onclick="switchTab('raw')" id="tab-raw" class="tab-btn px-6 py-4 text-sm font-bold whitespace-nowrap transition-colors border-b-2 border-transparent text-slate-500">Sheet Terbaru</button>
             </div>
 
-            <!-- Search Bar -->
-            <div class="p-4 border-b border-slate-100 bg-slate-50/50">
-                <div class="relative max-w-md">
-                    <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"></i>
-                    <input 
-                        type="text" 
-                        id="searchInput"
-                        onkeyup="handleSearch()"
-                        placeholder="Cari ID atau nilai..."
-                        class="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                    >
-                </div>
+            <!-- Filter Info -->
+            <div id="filter-info" class="hidden px-6 py-3 bg-slate-50 border-b border-slate-100 text-slate-500 text-[10px] font-bold uppercase tracking-wider flex items-center gap-2">
+                <i data-lucide="info" class="w-3.5 h-3.5"></i>
+                Kunci: Kolom B | Penanganan Koma Aktif
             </div>
 
-            <!-- Table Area -->
-            <div class="overflow-x-auto">
+            <!-- Table -->
+            <div class="overflow-x-auto min-h-[400px]">
                 <table class="w-full text-left text-sm border-collapse" id="dataTable">
-                    <thead class="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-widest font-bold">
-                        <tr id="tableHeader">
-                            <!-- Headers injected here -->
-                        </tr>
+                    <thead class="bg-slate-50 text-slate-400 uppercase text-[10px] tracking-widest font-bold">
+                        <tr id="tableHeader"></tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-100" id="tableBody">
-                        <!-- Content injected here -->
-                    </tbody>
+                    <tbody class="divide-y divide-slate-100" id="tableBody"></tbody>
                 </table>
             </div>
 
-            <!-- Empty/Summary State -->
-            <div id="summaryContent" class="p-12 text-center">
-                <div class="bg-blue-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <i data-lucide="filter" class="text-blue-600 w-8 h-8"></i>
+            <!-- Summary View -->
+            <div id="summaryContent" class="p-16 text-center">
+                <div class="bg-blue-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                    <i data-lucide="database" class="text-blue-600 w-10 h-10"></i>
                 </div>
-                <h3 class="text-lg font-bold text-slate-800 mb-2">Pilih Kategori Perbandingan</h3>
-                <p class="text-slate-500 max-w-md mx-auto">Gunakan tab di atas untuk melihat detail data yang berubah, baru ditambahkan, atau telah dihapus dari sistem.</p>
+                <h3 class="text-xl font-bold text-slate-800 mb-2">Analisis Berhasil</h3>
+                <p class="text-slate-500 max-w-md mx-auto mb-8 text-sm italic">Data diproses menggunakan parser CSV cerdas untuk menangani nama barang yang mengandung koma.</p>
+                <button onclick="switchTab('changed')" class="px-8 py-3 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 shadow-xl transition active:scale-95">Lihat Perbedaan</button>
             </div>
         </div>
     </main>
-
-    <footer class="max-w-7xl mx-auto mt-8 px-4 flex justify-between items-center text-[10px] text-slate-400 uppercase tracking-widest font-bold">
-        <p>Sumber: Google Sheets Live Feed</p>
-        <p>&copy; 2024 DataComparator Web</p>
-    </footer>
 
     <script>
         const DATA_1_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTF8Hs0rJCd7GAkc8SndKc1y1pvodkKof06_eg3FxeIpMe41lK-n2-UMqkWTHhTGH7g9J6gGWGgygtk/pub?gid=0&single=true&output=csv";
@@ -103,8 +94,7 @@
             data1: [],
             data2: [],
             results: null,
-            activeTab: 'summary',
-            searchTerm: ''
+            activeTab: 'summary'
         };
 
         async function fetchData() {
@@ -123,21 +113,31 @@
                 switchTab(state.activeTab);
             } catch (err) {
                 console.error(err);
-                alert("Gagal memuat data. Periksa koneksi internet Anda.");
+                alert("Error: Pastikan Google Sheet telah dipublikasikan ke Web.");
             } finally {
                 document.getElementById('loading').style.display = 'none';
                 lucide.createIcons();
             }
         }
 
+        // FUNGSI BARU: Menangani koma di dalam teks (CSV Parser cerdas)
         function parseCSV(csv) {
-            const lines = csv.split('\n');
-            const headers = lines[0].split(',').map(h => h.trim());
+            const lines = csv.split(/\r?\n/);
+            if (lines.length === 0) return [];
+            
+            // Regex ini memisahkan berdasarkan koma, tapi mengabaikan koma di dalam tanda kutip
+            const splitRegex = /,(?=(?:(?:[^"]*"){2})*[^"]*$)/;
+
+            const headers = lines[0].split(splitRegex).map(h => h.trim().replace(/^"|"$/g, ''));
+            
             return lines.slice(1).filter(line => line.trim() !== "").map(line => {
-                const values = line.split(',');
+                const values = line.split(splitRegex);
                 const obj = {};
                 headers.forEach((header, index) => {
-                    obj[header] = values[index] ? values[index].trim() : "";
+                    let val = values[index] ? values[index].trim() : "";
+                    // Menghapus tanda kutip di awal/akhir jika ada (hasil ekspor sheet)
+                    val = val.replace(/^"|"$/g, '');
+                    obj[header] = val;
                 });
                 return obj;
             });
@@ -146,15 +146,17 @@
         function compareData() {
             const d1 = state.data1;
             const d2 = state.data2;
-            const key = Object.keys(d1[0] || {})[0];
+            const headers = Object.keys(d1[0] || {});
+            const primaryKey = headers[1]; // Kolom B
             
-            if (!key) return;
+            if (!primaryKey) return;
 
-            const map1 = new Map(d1.map(item => [item[key], item]));
-            const map2 = new Map(d2.map(item => [item[key], item]));
+            const map1 = new Map(d1.map(item => [item[primaryKey], item]));
+            const map2 = new Map(d2.map(item => [item[primaryKey], item]));
             const allKeys = Array.from(new Set([...map1.keys(), ...map2.keys()]));
             
             const results = {
+                primaryKey,
                 added: [],
                 removed: [],
                 changed: [],
@@ -163,6 +165,7 @@
             };
 
             allKeys.forEach(id => {
+                if (!id) return;
                 const item1 = map1.get(id);
                 const item2 = map2.get(id);
 
@@ -189,14 +192,17 @@
             });
 
             state.results = results;
+            document.getElementById('badge-changed').innerText = results.changed.length;
+            document.getElementById('badge-added').innerText = results.added.length;
+            document.getElementById('badge-removed').innerText = results.removed.length;
         }
 
         function renderStats() {
             const container = document.getElementById('stats-container');
             const stats = [
-                { label: 'Identik', value: state.results.identical.length, color: 'text-emerald-600', bg: 'bg-emerald-50', icon: 'check-circle' },
-                { label: 'Berubah', value: state.results.changed.length, color: 'text-amber-600', bg: 'bg-amber-50', icon: 'refresh-cw' },
-                { label: 'Baru', value: state.results.added.length, color: 'text-blue-600', bg: 'bg-blue-50', icon: 'plus-circle' },
+                { label: 'Sama', value: state.results.identical.length, color: 'text-emerald-600', bg: 'bg-emerald-50', icon: 'check-circle' },
+                { label: 'Berubah', value: state.results.changed.length, color: 'text-amber-600', bg: 'bg-amber-50', icon: 'shuffle' },
+                { label: 'Baru', value: state.results.added.length, color: 'text-blue-600', bg: 'bg-blue-50', icon: 'plus-square' },
                 { label: 'Dihapus', value: state.results.removed.length, color: 'text-rose-600', bg: 'bg-rose-50', icon: 'trash-2' }
             ];
 
@@ -206,7 +212,7 @@
                         <i data-lucide="${s.icon}" class="w-6 h-6"></i>
                     </div>
                     <div>
-                        <p class="text-xs text-slate-400 font-bold uppercase tracking-wider">${s.label}</p>
+                        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">${s.label}</p>
                         <p class="text-2xl font-black text-slate-800">${s.value}</p>
                     </div>
                 </div>
@@ -221,85 +227,78 @@
             
             const summary = document.getElementById('summaryContent');
             const table = document.getElementById('dataTable');
+            const filterInfo = document.getElementById('filter-info');
             
             if (tabId === 'summary') {
                 summary.classList.remove('hidden');
                 table.classList.add('hidden');
+                filterInfo.classList.add('hidden');
             } else {
                 summary.classList.add('hidden');
                 table.classList.remove('hidden');
+                filterInfo.classList.remove('hidden');
                 renderTable();
             }
-        }
-
-        function handleSearch() {
-            state.searchTerm = document.getElementById('searchInput').value.toLowerCase();
-            if (state.activeTab !== 'summary') renderTable();
         }
 
         function renderTable() {
             const headerRow = document.getElementById('tableHeader');
             const body = document.getElementById('tableBody');
-            const cols = state.results.allColumns;
-
-            // Render Headers
-            headerRow.innerHTML = '<th class="px-6 py-4 border-b border-slate-200">Status</th>' + 
-                cols.map(c => `<th class="px-6 py-4 border-b border-slate-200">${c}</th>`).join('');
-
-            let rows = [];
-            const term = state.searchTerm;
+            const res = state.results;
+            const pk = res.primaryKey;
 
             if (state.activeTab === 'changed') {
-                rows = state.results.changed
-                    .filter(r => JSON.stringify(r).toLowerCase().includes(term))
-                    .map(r => `
-                        <tr class="hover:bg-slate-50 transition">
-                            <td class="px-6 py-4"><span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[10px] font-black uppercase">Berubah</span></td>
-                            ${cols.map(c => `
-                                <td class="px-6 py-4">
-                                    ${r.diffs[c] ? `
-                                        <div class="flex flex-col">
-                                            <span class="text-rose-400 line-through text-[11px]">${r.diffs[c].old}</span>
-                                            <span class="text-emerald-600 font-bold">${r.diffs[c].new}</span>
-                                        </div>
-                                    ` : `<span class="text-slate-600">${r.current[c]}</span>`}
-                                </td>
-                            `).join('')}
-                        </tr>
-                    `);
-            } else if (state.activeTab === 'added') {
-                rows = state.results.added
-                    .filter(r => JSON.stringify(r).toLowerCase().includes(term))
-                    .map(r => `
-                        <tr class="bg-blue-50/30 hover:bg-blue-50/50 transition">
-                            <td class="px-6 py-4"><span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-black uppercase">Baru</span></td>
-                            ${cols.map(c => `<td class="px-6 py-4 font-semibold text-blue-900">${r[c]}</td>`).join('')}
-                        </tr>
-                    `);
-            } else if (state.activeTab === 'removed') {
-                rows = state.results.removed
-                    .filter(r => JSON.stringify(r).toLowerCase().includes(term))
-                    .map(r => `
-                        <tr class="bg-rose-50/30 hover:bg-rose-50/50 transition">
-                            <td class="px-6 py-4"><span class="bg-rose-100 text-rose-700 px-2 py-0.5 rounded text-[10px] font-black uppercase">Dihapus</span></td>
-                            ${cols.map(c => `<td class="px-6 py-4 text-slate-400 italic line-through">${r[c]}</td>`).join('')}
-                        </tr>
-                    `);
-            } else if (state.activeTab === 'raw') {
-                rows = state.data2
-                    .filter(r => JSON.stringify(r).toLowerCase().includes(term))
-                    .map((r, i) => `
-                        <tr class="hover:bg-slate-50 transition">
-                            <td class="px-6 py-4 text-slate-300 font-mono text-xs">#${i+1}</td>
-                            ${cols.map(c => `<td class="px-6 py-4">${r[c]}</td>`).join('')}
-                        </tr>
-                    `);
-            }
+                const columnsWithDiffs = new Set();
+                columnsWithDiffs.add(pk);
+                res.changed.forEach(row => {
+                    Object.keys(row.diffs).forEach(col => columnsWithDiffs.add(col));
+                });
+                
+                const activeCols = Array.from(columnsWithDiffs);
+                headerRow.innerHTML = activeCols.map(c => `<th class="px-6 py-4 border-b border-slate-200 whitespace-nowrap ${c === pk ? 'sticky-col' : ''}">${c}</th>`).join('');
+                
+                body.innerHTML = res.changed.map(row => `
+                    <tr class="hover:bg-slate-50 transition">
+                        ${activeCols.map(col => {
+                            if (col === pk) return `<td class="px-6 py-4 font-id font-bold text-blue-700 sticky-col shadow-sm">${row.id}</td>`;
+                            
+                            const diff = row.diffs[col];
+                            const isBarang = col.toLowerCase().includes('barang');
+                            const cellClass = isBarang ? 'font-compact text-slate-800' : 'text-slate-600';
 
-            body.innerHTML = rows.length > 0 ? rows.join('') : `<tr><td colspan="${cols.length + 1}" class="p-12 text-center text-slate-400 italic">Data tidak ditemukan</td></tr>`;
+                            if (diff) {
+                                return `
+                                    <td class="px-6 py-4 diff-cell border-x border-amber-50">
+                                        <div class="flex flex-col">
+                                            <span class="text-rose-400 line-through text-[10px] font-medium mb-1">${diff.old || '(kosong)'}</span>
+                                            <span class="text-emerald-700 font-bold ${isBarang ? 'text-[11px]' : ''}">${diff.new || '(kosong)'}</span>
+                                        </div>
+                                    </td>
+                                `;
+                            }
+                            return `<td class="px-6 py-4 text-slate-400 text-[10px] ${isBarang ? 'font-compact' : ''}">${row.current[col] || '-'}</td>`;
+                        }).join('')}
+                    </tr>
+                `).join('');
+
+            } else {
+                const dataSource = state.activeTab === 'added' ? res.added : (state.activeTab === 'removed' ? res.removed : state.data2);
+                headerRow.innerHTML = res.allColumns.map(c => `<th class="px-6 py-4 border-b border-slate-200 whitespace-nowrap ${c === pk ? 'sticky-col' : ''}">${c}</th>`).join('');
+                
+                body.innerHTML = dataSource.map(row => `
+                    <tr class="hover:bg-slate-50 transition">
+                        ${res.allColumns.map(c => {
+                            const isPK = c === pk;
+                            const isBarang = c.toLowerCase().includes('barang');
+                            const cellStyle = isPK ? 'font-id text-blue-800 sticky-col shadow-sm font-bold' : (isBarang ? 'font-compact' : 'text-slate-600');
+                            return `<td class="px-6 py-4 ${cellStyle}">${row[c] || ''}</td>`;
+                        }).join('')}
+                    </tr>
+                `).join('');
+            }
+            lucide.createIcons();
         }
 
-        // Initialize
         window.onload = fetchData;
     </script>
 </body>
