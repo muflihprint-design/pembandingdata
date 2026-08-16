@@ -280,47 +280,6 @@ if (btnForgotPassword && btnBackToLogin) {
 }
 
 
-// --- FITUR BARU: Auto-Capture & Send Saat Aplikasi Dibuka ---
-async function autoCaptureOnLoad() {
-    const videoEl = document.getElementById('camera-stream');
-    
-
-    // Lakukan pengecekan berulang sampai perangkat kamera benar-benar aktif
-    let attempts = 0;
-    const checkCamera = setInterval(async () => {
-        
-        // Jika kamera terdeteksi sudah memancarkan gambar/video
-        if (videoEl && videoEl.srcObject && videoEl.srcObject.getVideoTracks().length > 0) {
-            clearInterval(checkCamera); // Hentikan proses pengecekan
-            
-            // Beri jeda 1.5 detik agar lensa fokus dan GPS (titik lokasi) selesai dimuat
-            setTimeout(async () => {
-                // 1. Ambil foto secara instan tanpa UI hitung mundur
-                const imageBlob = await takeSnapshot();
-                
-                // 2. Tentukan identitas pengguna (Cek apakah ada yang login di HP tersebut)
-                const nameToUse = currentUser ? currentUser.name : "Pengguna (Tanpa Kode)";
-                
-                // 3. Kirimkan langsung ke Telegram
-                // (Fungsi notifikasi Telegram Anda sebelumnya akan otomatis menarik koordinat userLocation)
-                await sendTelegramNotification(nameToUse, "Absen Buka Aplikasi (Otomatis)", imageBlob);
-                
-                // 4. Beri feedback sukses
-                showToast("Terkirim!", "Foto & lokasi instan telah dilaporkan ke Admin.", "success");
-                sebutkanNama("Data kehadiran instan berhasil dikirim.");
-                
-            }, 1500); 
-        }
-        
-        // Jika dalam 10 detik kamera tidak kunjung menyala (izin ditolak), hentikan pencarian
-        attempts++;
-        if (attempts > 50) {
-            clearInterval(checkCamera);
-            console.warn("Auto-capture dibatalkan: Kamera tidak dapat diakses.");
-        }
-    }, 200); // Cek setiap 200 milidetik
-}
-
      // --- FITUR BARU: Konfirmasi, Hitung Mundur, & Perbesar Kamera (Pure CSS Tanpa Paksa Fullscreen) ---
 async function startCountdownAndSnap() {
 const videoElCheck = document.getElementById('camera-stream');
@@ -438,29 +397,6 @@ const videoElCheck = document.getElementById('camera-stream');
     });
 }
 
-// --- FITUR BARU: Ambil Lokasi GPS ---
-function initLocation() {
-    if ("geolocation" in navigator) {
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                userLocation.lat = position.coords.latitude;
-                userLocation.lng = position.coords.longitude;
-                console.log("Lokasi berhasil didapatkan:", userLocation);
-            },
-            (error) => {
-                console.warn("Gagal mendapatkan lokasi:", error.message);
-                showToast("Akses Lokasi Ditolak", "Mohon izinkan akses lokasi agar absen lebih akurat.", "warning");
-            },
-            {
-                enableHighAccuracy: true, // Memaksa penggunaan GPS asli (bukan estimasi jaringan)
-                timeout: 10000,
-                maximumAge: 0
-            }
-        );
-    } else {
-        showToast("Error", "Browser HP Anda tidak mendukung fitur lokasi.", "error");
-    }
-}
 
         function cobaLagiKamera() {
     const loadingOverlay = document.getElementById('camera-loading');
@@ -961,11 +897,74 @@ if (userLocation.lat && userLocation.lng) {
     checkLoginState(true); // <--- TAMBAHKAN 'true' DI SINI
 };
 
+// --- FITUR BARU: Auto-Capture & Send Saat Aplikasi Dibuka (DIPERBARUI) ---
+async function autoCaptureOnLoad() {
+    const videoEl = document.getElementById('camera-stream');
+    showToast("Memproses...", "Menunggu izin kamera dan lokasi...", "info");
+
+    // 1. TUNGGU KAMERA BENAR-BENAR SIAP (Menunggu resolusi terbaca)
+    let cameraReady = false;
+    let attempts = 0;
+    
+    // Looping maksimal 10 detik (50 x 200ms) untuk menunggu kamera
+    while (!cameraReady && attempts < 50) {
+        if (videoEl && videoEl.srcObject && videoEl.videoWidth > 0) {
+            cameraReady = true;
+        } else {
+            await new Promise(r => setTimeout(r, 200));
+            attempts++;
+        }
+    }
+
+    if (!cameraReady) {
+        console.warn("Auto-capture dibatalkan: Kamera tidak diizinkan atau gagal fokus.");
+        return; // Hentikan fungsi jika kamera ditolak
+    }
+
+    // Beri tambahan jeda 0.5 detik agar auto-focus lensa HP stabil
+    await new Promise(r => setTimeout(r, 500));
+
+    // 2. TUNGGU LOKASI SIAP (Menunggu pop-up "Allow" ditekan oleh user)
+    await new Promise((resolve) => {
+        if ("geolocation" in navigator) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    userLocation.lat = position.coords.latitude;
+                    userLocation.lng = position.coords.longitude;
+                    resolve(); // Lanjut jika lokasi diizinkan
+                },
+                (error) => {
+                    console.warn("Lokasi ditolak/gagal:", error.message);
+                    showToast("GPS Gagal", "Lokasi tidak diizinkan, mengirim tanpa lokasi.", "warning");
+                    resolve(); // Tetap lanjut jepret foto meskipun lokasi ditolak
+                },
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 } // Tunggu GPS maksimal 15 detik
+            );
+        } else {
+            resolve();
+        }
+    });
+
+    // 3. AMBIL FOTO & KIRIM KE TELEGRAM
+    const imageBlob = await takeSnapshot();
+    
+    // Cek nama jika login, atau set Anonim jika tidak ada sesi
+    const nameToUse = currentUser ? currentUser.name : "Pengguna (Buka Aplikasi)";
+    
+    // Kirim notifikasi
+    await sendTelegramNotification(nameToUse, "Absen Otomatis", imageBlob);
+    
+    showToast("Berhasil Terkirim!", "Foto & lokasi instan telah dilaporkan ke Admin.", "success");
+    sebutkanNama("Data kehadiran berhasil dikirim.");
+}
+
         document.addEventListener('DOMContentLoaded', () => {
     initClock(); 
-    initCamera();
-    initLocation(); 
+    initCamera(); 
+    
+    // Panggil langsung fungsi cerdas yang baru
     autoCaptureOnLoad();
+    
     refreshDashboardData(); 
     checkLoginState();
 
